@@ -49,6 +49,14 @@ As rotas administrativas da integracao e credenciais continuam fora da
 superficie publica. Para acesso de fora da loja, a recomendacao e apontar um
 Cloudflare Tunnel para `http://localhost:3010`, sem abrir portas no roteador.
 
+Para iniciar o catalogo automaticamente ao entrar no Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\install-catalog-startup.ps1
+```
+
+Os logs locais ficam em `logs/catalog-public.log`.
+
 ## Estrutura do Projeto
 - `src/server.js`: Ponto de entrada da API.
 - `src/catalog-public-server.js`: Servidor publico restrito ao catalogo.

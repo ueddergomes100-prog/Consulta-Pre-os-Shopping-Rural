@@ -10,6 +10,7 @@ frontend/dist/
 coverage/
 .vite/
 *.log
+logs/
 
 # Dados e mídias locais
 data/media/
