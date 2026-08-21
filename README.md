@@ -31,7 +31,26 @@ A tela inicial mostra os 20 produtos mais consultados. Buscas que identificam
 um único produto alimentam um ranking local em `data/catalog-popularity.json`.
 Esse arquivo não é versionado e o banco do Uniplus continua somente leitura.
 
+### Acesso publico ao catalogo
+
+Para publicar somente o catalogo, gere o frontend e suba o servidor publico:
+
+```bash
+npm run build:frontend
+npm run start:catalog-public
+```
+
+Esse processo serve `http://localhost:3010/catalogo` e expõe apenas:
+
+- `GET /api/catalog/products`
+- `POST /api/catalog/products/:codigo/view`
+
+As rotas administrativas da integracao e credenciais continuam fora da
+superficie publica. Para acesso de fora da loja, a recomendacao e apontar um
+Cloudflare Tunnel para `http://localhost:3010`, sem abrir portas no roteador.
+
 ## Estrutura do Projeto
 - `src/server.js`: Ponto de entrada da API.
+- `src/catalog-public-server.js`: Servidor publico restrito ao catalogo.
 - `src/database/uniplus.js`: Conexão somente leitura com o ERP.
 - `src/controllers/ProductController.js`: Lógica de consulta de produtos.
