@@ -1,21 +1,15 @@
 const erpDb = require('../database/uniplus');
+const catalogPopularity = require('../services/CatalogPopularityService');
 
 class ProductController {
   /**
-   * Consulta paginada e somente leitura usada pelo catálogo dos vendedores.
+   * Consulta limitada a 20 produtos usada pelo catálogo dos vendedores.
    * Mantém as mesmas regras do painel: soma o saldo da filial e usa o maior
    * preço cadastrado por produto.
    */
   async getCatalogProducts(req, res) {
     const rawSearch = String(req.query.search || '').trim();
-    const requestedPage = Number.parseInt(req.query.page, 10);
-    const requestedPageSize = Number.parseInt(req.query.pageSize, 10);
-    const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
-    const pageSize = Number.isFinite(requestedPageSize)
-      ? Math.min(Math.max(requestedPageSize, 1), 50)
-      : 20;
-
-    const offset = (page - 1) * pageSize;
+    const pageSize = 20;
 
     const normalizeSearch = (value) => value
       .normalize('NFD')
@@ -53,6 +47,22 @@ class ProductController {
     const whereClause = `p.inativo = 0 ${searchCondition}`;
 
     try {
+      const popularCodes = rawSearch ? [] : await catalogPopularity.getTopCodes(pageSize);
+      const dataParams = [...queryParams];
+      let orderClause = `${nameExpression}, ${codeExpression}`;
+
+      if (popularCodes.length) {
+        const rankingCases = popularCodes.map((code, index) => {
+          dataParams.push(code);
+          return `WHEN $${dataParams.length} THEN ${index}`;
+        });
+        orderClause = `
+          CASE p.codigo ${rankingCases.join(' ')} ELSE ${popularCodes.length} END,
+          ${nameExpression},
+          ${codeExpression}
+        `;
+      }
+
       const countSql = `
         SELECT COUNT(*)::integer AS total
         FROM produto p
@@ -78,23 +88,24 @@ class ProductController {
           GROUP BY idproduto
         ) fpp ON fpp.idproduto = p.id
         WHERE ${whereClause}
-        ORDER BY ${nameExpression}, ${codeExpression}
-        LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}
+        ORDER BY ${orderClause}
+        LIMIT $${dataParams.length + 1}
       `;
 
       const [countResult, dataResult] = await Promise.all([
         erpDb.query(countSql, queryParams),
-        erpDb.query(dataSql, [...queryParams, pageSize, offset])
+        erpDb.query(dataSql, [...dataParams, pageSize])
       ]);
 
       const total = countResult.rows[0]?.total || 0;
-      const totalPages = Math.ceil(total / pageSize);
 
       return res.json({
         total,
-        page,
+        page: 1,
         pageSize,
-        totalPages,
+        totalPages: 1,
+        mode: rawSearch ? 'search' : 'popular',
+        popularCount: popularCodes.length,
         data: dataResult.rows
       });
     } catch (error) {
@@ -102,6 +113,31 @@ class ProductController {
       return res.status(503).json({
         error: 'Não foi possível consultar os produtos no momento.'
       });
+    }
+  }
+
+  async recordCatalogView(req, res) {
+    const code = String(req.params.codigo || '').trim().slice(0, 80);
+
+    if (!code) {
+      return res.status(400).json({ error: 'Código do produto não informado.' });
+    }
+
+    try {
+      const { rows } = await erpDb.query(
+        'SELECT codigo FROM produto WHERE inativo = 0 AND codigo = $1 LIMIT 1',
+        [code]
+      );
+
+      if (!rows.length) {
+        return res.status(404).json({ error: 'Produto não encontrado.' });
+      }
+
+      await catalogPopularity.recordView(code);
+      return res.status(204).send();
+    } catch (error) {
+      console.error('Erro ao registrar consulta do catálogo:', error.message);
+      return res.status(503).json({ error: 'Não foi possível registrar a consulta.' });
     }
   }
 

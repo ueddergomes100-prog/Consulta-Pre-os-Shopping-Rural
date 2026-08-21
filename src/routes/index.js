@@ -10,6 +10,7 @@ const routes = Router();
 // ERP (Uniplus)
 routes.get('/erp/products', ProductController.getErpProducts);
 routes.get('/catalog/products', ProductController.getCatalogProducts.bind(ProductController));
+routes.post('/catalog/products/:codigo/view', ProductController.recordCatalogView.bind(ProductController));
 
 // Integração (Local)
 routes.get('/integration/products', IntegrationController.getIntegratedProducts);

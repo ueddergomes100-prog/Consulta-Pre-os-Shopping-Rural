@@ -15,6 +15,7 @@ coverage/
 data/media/
 data/*.db
 data/*.sqlite*
+data/catalog-popularity.json
 
 # Ferramentas locais
 .codex-logs/

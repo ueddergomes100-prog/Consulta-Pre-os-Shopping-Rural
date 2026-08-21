@@ -1,9 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import {
   AlertTriangle,
-  ArrowLeft,
-  ArrowRight,
   CheckCircle2,
   CircleOff,
   LoaderCircle,
@@ -14,7 +12,6 @@ import {
 } from 'lucide-react';
 import './CatalogApp.css';
 
-const PAGE_SIZE = 20;
 const LOW_STOCK_LIMIT = 5;
 
 const currencyFormatter = new Intl.NumberFormat('pt-BR', {
@@ -166,63 +163,16 @@ function LoadingState() {
   );
 }
 
-function Pagination({ page, totalPages, onChange }) {
-  const pages = useMemo(() => {
-    const start = Math.max(1, Math.min(page - 2, totalPages - 4));
-    const end = Math.min(totalPages, start + 4);
-    return Array.from({ length: Math.max(0, end - start + 1) }, (_, index) => start + index);
-  }, [page, totalPages]);
-
-  if (totalPages <= 1) return null;
-
-  return (
-    <nav className="catalog-pagination" aria-label="Paginação dos resultados">
-      <button
-        type="button"
-        onClick={() => onChange(page - 1)}
-        disabled={page === 1}
-        aria-label="Página anterior"
-      >
-        <ArrowLeft size={17} />
-        <span>Anterior</span>
-      </button>
-      <div className="catalog-pagination__pages">
-        {pages.map((pageNumber) => (
-          <button
-            type="button"
-            key={pageNumber}
-            onClick={() => onChange(pageNumber)}
-            className={pageNumber === page ? 'is-active' : ''}
-            aria-label={`Página ${pageNumber}`}
-            aria-current={pageNumber === page ? 'page' : undefined}
-          >
-            {pageNumber}
-          </button>
-        ))}
-      </div>
-      <button
-        type="button"
-        onClick={() => onChange(page + 1)}
-        disabled={page === totalPages}
-        aria-label="Próxima página"
-      >
-        <span>Próxima</span>
-        <ArrowRight size={17} />
-      </button>
-    </nav>
-  );
-}
-
 export default function CatalogApp() {
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [products, setProducts] = useState([]);
-  const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [totalPages, setTotalPages] = useState(0);
+  const [popularCount, setPopularCount] = useState(0);
   const [status, setStatus] = useState('loading');
   const [retryToken, setRetryToken] = useState(0);
   const inputRef = useRef(null);
+  const lastRecordedSearchRef = useRef(null);
 
   useEffect(() => {
     const nextQuery = query.trim();
@@ -231,7 +181,6 @@ export default function CatalogApp() {
     const timer = window.setTimeout(() => {
       setStatus('loading');
       setDebouncedQuery(nextQuery);
-      setPage(1);
     }, 350);
 
     return () => window.clearTimeout(timer);
@@ -241,37 +190,48 @@ export default function CatalogApp() {
     const controller = new AbortController();
 
     axios.get('/api/catalog/products', {
-      params: { search: debouncedQuery, page, pageSize: PAGE_SIZE },
+      params: { search: debouncedQuery },
       signal: controller.signal,
     }).then(({ data }) => {
-      setProducts(Array.isArray(data.data) ? data.data : []);
+      const productData = Array.isArray(data.data) ? data.data : [];
+      setProducts(productData);
       setTotal(Number(data.total || 0));
-      setTotalPages(Number(data.totalPages || 0));
+      setPopularCount(Number(data.popularCount || 0));
       setStatus(data.data?.length ? 'success' : 'empty');
+
+      const normalizedQuery = debouncedQuery
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+      const exactCodeMatch = productData.find((product) =>
+        String(product.codigo || '').toLowerCase() === normalizedQuery
+      );
+      const viewedProduct = Number(data.total) === 1 ? productData[0] : exactCodeMatch;
+      const recordKey = viewedProduct ? `${normalizedQuery}:${viewedProduct.codigo}` : null;
+
+      if (debouncedQuery && viewedProduct && lastRecordedSearchRef.current !== recordKey) {
+        lastRecordedSearchRef.current = recordKey;
+        axios.post(`/api/catalog/products/${encodeURIComponent(viewedProduct.codigo)}/view`).catch(() => {});
+      } else if (!viewedProduct) {
+        lastRecordedSearchRef.current = null;
+      }
     }).catch((error) => {
       if (error.code !== 'ERR_CANCELED') {
         setProducts([]);
         setTotal(0);
-        setTotalPages(0);
+        setPopularCount(0);
         setStatus('error');
       }
     });
 
     return () => controller.abort();
-  }, [debouncedQuery, page, retryToken]);
+  }, [debouncedQuery, retryToken]);
 
   const clearSearch = () => {
     setStatus('loading');
     setQuery('');
     setDebouncedQuery('');
-    setPage(1);
     inputRef.current?.focus();
-  };
-
-  const changePage = (nextPage) => {
-    setStatus('loading');
-    setPage(nextPage);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const retrySearch = () => {
@@ -292,7 +252,7 @@ export default function CatalogApp() {
         <section className="catalog-intro" aria-labelledby="catalog-title">
           <p className="catalog-eyebrow">Catálogo de produtos</p>
           <h1 id="catalog-title">Consulte preço e estoque em segundos.</h1>
-          <p>Veja a lista alfabética ou pesquise pelo código e nome do produto.</p>
+          <p>Veja os produtos mais pesquisados ou procure pelo código e nome.</p>
         </section>
 
         <section className="catalog-search" aria-label="Pesquisa de produtos">
@@ -322,11 +282,15 @@ export default function CatalogApp() {
           <section className="catalog-results" aria-busy="false">
             <div className="catalog-results__heading">
               <div>
-                <h2>{debouncedQuery ? 'Resultados' : 'Produtos em ordem alfabética'}</h2>
+                <h2>{debouncedQuery ? 'Resultados' : '20 produtos mais pesquisados'}</h2>
                 <p aria-live="polite">
                   {debouncedQuery
-                    ? (total === 1 ? '1 produto encontrado' : `${total.toLocaleString('pt-BR')} produtos encontrados`)
-                    : `${total.toLocaleString('pt-BR')} produtos cadastrados · 20 por página`}
+                    ? (total === 1
+                        ? '1 produto encontrado'
+                        : `Mostrando até 20 de ${total.toLocaleString('pt-BR')} produtos encontrados`)
+                    : (popularCount
+                        ? 'Ranking baseado nas consultas dos vendedores'
+                        : 'Ranking em formação · as consultas atualizarão esta lista')}
                 </p>
               </div>
               <div className="catalog-legend" aria-label="Legenda de estoque">
@@ -356,10 +320,6 @@ export default function CatalogApp() {
               {products.map((product) => <ProductCard key={product.codigo} product={product} />)}
             </div>
 
-            <div className="catalog-results__footer">
-              <p>Página {page} de {totalPages}</p>
-              <Pagination page={page} totalPages={totalPages} onChange={changePage} />
-            </div>
           </section>
         )}
 

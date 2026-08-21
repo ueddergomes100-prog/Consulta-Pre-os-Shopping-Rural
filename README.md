@@ -24,8 +24,12 @@ API de integração para sincronização de estoque, preço e produtos.
 
 Com a API e o frontend em execução, acesse `http://localhost:5174/catalogo`.
 Se a porta 5174 já estiver ocupada, o Vite informará a próxima porta livre no
-terminal. O catálogo usa somente o endpoint paginado de leitura
-`GET /api/catalog/products` e nunca acessa o banco diretamente pelo navegador.
+terminal. O catálogo usa `GET /api/catalog/products`, limita cada consulta a 20
+itens e nunca acessa o banco diretamente pelo navegador.
+
+A tela inicial mostra os 20 produtos mais consultados. Buscas que identificam
+um único produto alimentam um ranking local em `data/catalog-popularity.json`.
+Esse arquivo não é versionado e o banco do Uniplus continua somente leitura.
 
 ## Estrutura do Projeto
 - `src/server.js`: Ponto de entrada da API.
