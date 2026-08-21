@@ -1,0 +1,24 @@
+# Configuração local e credenciais
+.env
+.env.*
+!.env.example
+
+# Dependências e artefatos gerados
+node_modules/
+frontend/node_modules/
+frontend/dist/
+coverage/
+.vite/
+*.log
+
+# Dados e mídias locais
+data/media/
+data/*.db
+data/*.sqlite*
+
+# Ferramentas locais
+.codex-logs/
+.gemini/
+.DS_Store
+Thumbs.db
+test.txt
