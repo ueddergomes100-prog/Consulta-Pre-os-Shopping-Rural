@@ -1,13 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import {
   AlertTriangle,
+  ArrowDownUp,
   CheckCircle2,
   CircleOff,
   LoaderCircle,
   PackageOpen,
   RefreshCw,
   Search,
+  SlidersHorizontal,
+  Tags,
   X,
 } from 'lucide-react';
 import './CatalogApp.css';
@@ -36,6 +39,17 @@ function getStockStatus(stockValue) {
   }
 
   return { key: 'available', label: 'Disponível', icon: CheckCircle2 };
+}
+
+function getEffectivePrice(product) {
+  const price = Number(product.preco || 0);
+  const promotionalPrice = Number(product.promotional_price || 0);
+
+  return promotionalPrice > 0 ? promotionalPrice : price;
+}
+
+function hasPromotion(product) {
+  return Number(product.promotional_price || 0) > 0;
 }
 
 function Brand() {
@@ -97,6 +111,7 @@ function ProductTableRow({ product }) {
   const status = getStockStatus(product.estoque);
   const StatusIcon = status.icon;
   const description = product.descricao?.trim();
+  const group = product.nome_categoria?.trim();
 
   return (
     <tr className="catalog-product-row">
@@ -105,12 +120,19 @@ function ProductTableRow({ product }) {
       </td>
       <td data-label="Produto" className="catalog-product-main">
         <strong>{product.nome}</strong>
+        {group && <span className="catalog-group">{group}</span>}
         <span className={description ? '' : 'catalog-description--empty'}>
           {description || 'Sem descrição cadastrada'}
         </span>
       </td>
-      <td data-label="Preço" className="catalog-price">
-        {currencyFormatter.format(Number(product.preco || 0))}
+      <td data-label="Preço">
+        <span className="catalog-price">
+          {hasPromotion(product) && (
+            <small>{currencyFormatter.format(Number(product.preco || 0))}</small>
+          )}
+          <strong>{currencyFormatter.format(getEffectivePrice(product))}</strong>
+          {hasPromotion(product) && <em>Promoção</em>}
+        </span>
       </td>
       <td data-label="Estoque" className="catalog-stock-cell">
         <span className={`catalog-stock catalog-stock--${status.key}`}>
@@ -129,6 +151,7 @@ function ProductCard({ product }) {
   const status = getStockStatus(product.estoque);
   const StatusIcon = status.icon;
   const description = product.descricao?.trim();
+  const group = product.nome_categoria?.trim();
 
   return (
     <article className="catalog-product-card">
@@ -140,11 +163,18 @@ function ProductCard({ product }) {
         </span>
       </div>
       <h2>{product.nome}</h2>
+      {group && <span className="catalog-group">{group}</span>}
       <p className={description ? '' : 'catalog-description--empty'}>
         {description || 'Sem descrição cadastrada'}
       </p>
       <div className="catalog-product-card__bottom">
-        <span className="catalog-price">{currencyFormatter.format(Number(product.preco || 0))}</span>
+        <span className="catalog-price">
+          {hasPromotion(product) && (
+            <small>{currencyFormatter.format(Number(product.preco || 0))}</small>
+          )}
+          <strong>{currencyFormatter.format(getEffectivePrice(product))}</strong>
+          {hasPromotion(product) && <em>Promoção</em>}
+        </span>
         <span className="catalog-product-card__quantity">
           <small>Estoque</small>
           <strong>{stockFormatter.format(Number(product.estoque || 0))} un.</strong>
@@ -164,11 +194,15 @@ function LoadingState() {
 }
 
 export default function CatalogApp() {
+  const isMedicineCatalog = window.location.pathname === '/catalogo/medicamentos';
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [products, setProducts] = useState([]);
   const [total, setTotal] = useState(0);
   const [popularCount, setPopularCount] = useState(0);
+  const [sortBy, setSortBy] = useState('name');
+  const [stockFilter, setStockFilter] = useState('all');
+  const [promoOnly, setPromoOnly] = useState(false);
   const [status, setStatus] = useState('loading');
   const [retryToken, setRetryToken] = useState(0);
   const inputRef = useRef(null);
@@ -189,7 +223,7 @@ export default function CatalogApp() {
   useEffect(() => {
     const controller = new AbortController();
 
-    axios.get('/api/catalog/products', {
+    axios.get(isMedicineCatalog ? '/api/catalog/medicamentos' : '/api/catalog/products', {
       params: { search: debouncedQuery },
       signal: controller.signal,
     }).then(({ data }) => {
@@ -225,7 +259,7 @@ export default function CatalogApp() {
     });
 
     return () => controller.abort();
-  }, [debouncedQuery, retryToken]);
+  }, [debouncedQuery, retryToken, isMedicineCatalog]);
 
   const clearSearch = () => {
     setStatus('loading');
@@ -239,8 +273,39 @@ export default function CatalogApp() {
     setRetryToken((value) => value + 1);
   };
 
+  const visibleProducts = useMemo(() => {
+    const nextProducts = isMedicineCatalog ? products.filter((product) => {
+      const stock = Number(product.estoque || 0);
+      const matchesStock = stockFilter === 'all'
+        || (stockFilter === 'available' && stock > LOW_STOCK_LIMIT)
+        || (stockFilter === 'low' && stock > 0 && stock <= LOW_STOCK_LIMIT)
+        || (stockFilter === 'out' && stock <= 0);
+      const matchesPromotion = !promoOnly || hasPromotion(product);
+
+      return matchesStock && matchesPromotion;
+    }) : [...products];
+
+    if (!isMedicineCatalog) {
+      return nextProducts;
+    }
+
+    return nextProducts.sort((firstProduct, secondProduct) => {
+      const firstPrice = getEffectivePrice(firstProduct);
+      const secondPrice = getEffectivePrice(secondProduct);
+      const firstStock = Number(firstProduct.estoque || 0);
+      const secondStock = Number(secondProduct.estoque || 0);
+
+      if (sortBy === 'price-asc') return firstPrice - secondPrice;
+      if (sortBy === 'price-desc') return secondPrice - firstPrice;
+      if (sortBy === 'stock-asc') return firstStock - secondStock;
+      if (sortBy === 'stock-desc') return secondStock - firstStock;
+
+      return String(firstProduct.nome || '').localeCompare(String(secondProduct.nome || ''), 'pt-BR');
+    });
+  }, [isMedicineCatalog, products, promoOnly, sortBy, stockFilter]);
+
   return (
-    <div className="catalog-shell">
+    <div className={`catalog-shell ${isMedicineCatalog ? 'catalog-shell--erp' : ''}`}>
       <header className="catalog-header">
         <div className="catalog-container catalog-header__inner">
           <Brand />
@@ -251,8 +316,14 @@ export default function CatalogApp() {
       <main className="catalog-container catalog-main">
         <section className="catalog-intro" aria-labelledby="catalog-title">
           <p className="catalog-eyebrow">Catálogo de produtos</p>
-          <h1 id="catalog-title">Consulte preço e estoque em segundos.</h1>
-          <p>Veja os produtos mais pesquisados ou procure pelo código e nome.</p>
+          <h1 id="catalog-title">
+            {isMedicineCatalog ? 'Medicamentos cadastrados na loja.' : 'Consulte preço e estoque em segundos.'}
+          </h1>
+          <p>
+            {isMedicineCatalog
+              ? 'Lista filtrada por grupo e por termos de medicamento no nome do produto.'
+              : 'Veja os produtos mais pesquisados ou procure pelo código e nome.'}
+          </p>
         </section>
 
         <section className="catalog-search" aria-label="Pesquisa de produtos">
@@ -278,13 +349,62 @@ export default function CatalogApp() {
           <span id="catalog-search-hint">Digite o início do nome ou código. Use + entre termos para exigir todos no nome.</span>
         </section>
 
+        {isMedicineCatalog && (
+          <section className="catalog-toolbar" aria-label="Filtros de medicamentos">
+            <div className="catalog-toolbar__group">
+              <span>
+                <ArrowDownUp size={16} />
+                Ordenar
+              </span>
+              <select value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
+                <option value="name">Nome A-Z</option>
+                <option value="price-asc">Menor preço</option>
+                <option value="price-desc">Maior preço</option>
+                <option value="stock-desc">Maior estoque</option>
+                <option value="stock-asc">Menor estoque</option>
+              </select>
+            </div>
+
+            <div className="catalog-toolbar__group">
+              <span>
+                <SlidersHorizontal size={16} />
+                Estoque
+              </span>
+              <select value={stockFilter} onChange={(event) => setStockFilter(event.target.value)}>
+                <option value="all">Todos</option>
+                <option value="available">Disponível</option>
+                <option value="low">Estoque baixo</option>
+                <option value="out">Sem estoque</option>
+              </select>
+            </div>
+
+            <label className="catalog-promo-filter">
+              <input
+                type="checkbox"
+                checked={promoOnly}
+                onChange={(event) => setPromoOnly(event.target.checked)}
+              />
+              <Tags size={16} />
+              Só promoção
+            </label>
+          </section>
+        )}
+
         {status === 'success' && (
           <section className="catalog-results" aria-busy="false">
             <div className="catalog-results__heading">
               <div>
-                <h2>{debouncedQuery ? 'Resultados' : '20 produtos mais pesquisados'}</h2>
+                <h2>
+                  {isMedicineCatalog
+                    ? 'Medicamentos'
+                    : (debouncedQuery ? 'Resultados' : '20 produtos mais pesquisados')}
+                </h2>
                 <p aria-live="polite">
-                  {debouncedQuery
+                  {isMedicineCatalog
+                    ? (debouncedQuery
+                        ? `Mostrando ${visibleProducts.length.toLocaleString('pt-BR')} de ${total.toLocaleString('pt-BR')} medicamentos encontrados`
+                        : `${visibleProducts.length.toLocaleString('pt-BR')} de ${total.toLocaleString('pt-BR')} medicamentos na tela`)
+                    : debouncedQuery
                     ? (total === 1
                         ? '1 produto encontrado'
                         : `Mostrando até 20 de ${total.toLocaleString('pt-BR')} produtos encontrados`)
@@ -300,25 +420,37 @@ export default function CatalogApp() {
               </div>
             </div>
 
-            <div className="catalog-table-wrap">
-              <table className="catalog-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Código</th>
-                    <th scope="col">Produto e descrição</th>
-                    <th scope="col">Preço</th>
-                    <th scope="col">Estoque</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {products.map((product) => <ProductTableRow key={product.codigo} product={product} />)}
-                </tbody>
-              </table>
-            </div>
+            {visibleProducts.length ? (
+              <>
+                <div className="catalog-table-wrap">
+                  <table className="catalog-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Código</th>
+                        <th scope="col">Produto e descrição</th>
+                        <th scope="col">Preço</th>
+                        <th scope="col">Estoque</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleProducts.map((product) => <ProductTableRow key={product.codigo} product={product} />)}
+                    </tbody>
+                  </table>
+                </div>
 
-            <div className="catalog-mobile-list">
-              {products.map((product) => <ProductCard key={product.codigo} product={product} />)}
-            </div>
+                <div className="catalog-mobile-list">
+                  {visibleProducts.map((product) => <ProductCard key={product.codigo} product={product} />)}
+                </div>
+              </>
+            ) : (
+              <section className="catalog-empty catalog-empty--filters" aria-live="polite">
+                <span className="catalog-empty__icon" aria-hidden="true">
+                  <PackageOpen size={28} />
+                </span>
+                <h2>Nenhum medicamento nesse filtro</h2>
+                <p>Ajuste a ordenação, estoque ou promoção para ampliar a consulta.</p>
+              </section>
+            )}
 
           </section>
         )}

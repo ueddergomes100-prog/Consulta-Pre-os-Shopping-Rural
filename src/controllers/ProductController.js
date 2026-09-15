@@ -1,6 +1,81 @@
 const erpDb = require('../database/uniplus');
 const catalogPopularity = require('../services/CatalogPopularityService');
 
+const MEDICINE_KEYWORDS = [
+  'medicamento',
+  'medicamentoso',
+  'remedio',
+  'farmacia',
+  'antibiotico',
+  'antiinflamatorio',
+  'anti inflamatorio',
+  'analgesico',
+  'antialergico',
+  'antitoxico',
+  'antisseptico',
+  'cicatrizante',
+  'vermifugo',
+  'vermicida',
+  'endectocida',
+  'ectoparasiticida',
+  'carrapaticida',
+  'pulguicida',
+  'antipulgas',
+  'anticarrapatos',
+  'sarnicida',
+  'otologico',
+  'oftalmico',
+  'colirio',
+  'pomada',
+  'unguento',
+  'spray prata',
+  'iodo',
+  'iodopovidona',
+  'clorexidina',
+  'ivermectina',
+  'doramectina',
+  'moxidectina',
+  'albendazol',
+  'fenbendazol',
+  'febantel',
+  'praziquantel',
+  'piperazina',
+  'levamisol',
+  'oxitetraciclina',
+  'terramicina',
+  'penicilina',
+  'enrofloxacina',
+  'ceftiofur',
+  'sulfametoxazol',
+  'trimetoprim',
+  'dexametasona',
+  'meloxicam',
+  'flunixin',
+  'ketoprofeno',
+  'dipirona',
+  'bravecto',
+  'nexgard',
+  'simparic',
+  'credeli',
+  'frontline',
+  'advocate',
+  'advantage',
+  'revolution',
+  'seresto'
+];
+
+const MEDICINE_CATEGORY_KEYWORDS = [
+  'veterinario',
+  'veterinario porte',
+  'antibiotico',
+  'antipulga',
+  'carrapato',
+  'antiparasitario',
+  'vacina',
+  'medic',
+  'vermifugo'
+];
+
 class ProductController {
   /**
    * Consulta limitada a 20 produtos usada pelo catálogo dos vendedores.
@@ -9,7 +84,8 @@ class ProductController {
    */
   async getCatalogProducts(req, res) {
     const rawSearch = String(req.query.search || '').trim();
-    const pageSize = 20;
+    const medicineOnly = req.catalogScope === 'medicines' || req.query.group === 'medicamentos';
+    const pageSize = medicineOnly ? 2000 : 20;
 
     const normalizeSearch = (value) => value
       .normalize('NFD')
@@ -30,6 +106,7 @@ class ProductController {
     )`;
     const codeExpression = normalizeSql('p.codigo');
     const nameExpression = normalizeSql('p.nome');
+    const categoryExpression = normalizeSql('h.nome');
     const queryParams = [];
     let searchCondition = '';
 
@@ -44,10 +121,25 @@ class ProductController {
       searchCondition = `AND (${codeExpression} LIKE $1 OR ${nameExpression} LIKE $1)`;
     }
 
-    const whereClause = `p.inativo = 0 ${searchCondition}`;
+    let medicineCondition = '';
+
+    if (medicineOnly) {
+      queryParams.push(MEDICINE_KEYWORDS.map((keyword) => `%${keyword}%`));
+      const medicineNameParam = queryParams.length;
+      queryParams.push(MEDICINE_CATEGORY_KEYWORDS.map((keyword) => `%${keyword}%`));
+      const medicineCategoryParam = queryParams.length;
+      medicineCondition = `
+        AND (
+          ${categoryExpression} LIKE ANY($${medicineCategoryParam})
+          OR ${nameExpression} LIKE ANY($${medicineNameParam})
+        )
+      `;
+    }
+
+    const whereClause = `p.inativo = 0 ${searchCondition} ${medicineCondition}`;
 
     try {
-      const popularCodes = rawSearch ? [] : await catalogPopularity.getTopCodes(pageSize);
+      const popularCodes = rawSearch || medicineOnly ? [] : await catalogPopularity.getTopCodes(pageSize);
       const dataParams = [...queryParams];
       let orderClause = `${nameExpression}, ${codeExpression}`;
 
@@ -66,6 +158,7 @@ class ProductController {
       const countSql = `
         SELECT COUNT(*)::integer AS total
         FROM produto p
+        LEFT JOIN hierarquia h ON h.id = p.idhierarquia
         WHERE ${whereClause}
       `;
 
@@ -73,6 +166,7 @@ class ProductController {
         SELECT
           p.codigo AS codigo,
           p.nome AS nome,
+          h.nome AS nome_categoria,
           NULLIF(BTRIM(p.descricaoshop), '') AS descricao,
           COALESCE(fpp.preco, 0) AS preco,
           COALESCE(se.estoque, 0) AS estoque
@@ -87,6 +181,7 @@ class ProductController {
           FROM formacaoprecoproduto
           GROUP BY idproduto
         ) fpp ON fpp.idproduto = p.id
+        LEFT JOIN hierarquia h ON h.id = p.idhierarquia
         WHERE ${whereClause}
         ORDER BY ${orderClause}
         LIMIT $${dataParams.length + 1}
@@ -97,6 +192,33 @@ class ProductController {
         erpDb.query(dataSql, [...dataParams, pageSize])
       ]);
 
+      if (dataResult.rows.length) {
+        try {
+          const intDb = require('../database/integration');
+          const productCodes = dataResult.rows.map((product) => String(product.codigo || '').trim());
+          const { rows: priceRows } = await intDb.query(
+            `SELECT sku, nuvemshop_price, promotional_price
+             FROM integration_products
+             WHERE sku = ANY($1)`,
+            [productCodes]
+          );
+          const priceMap = new Map(
+            priceRows.map((price) => [String(price.sku || '').trim(), price])
+          );
+
+          dataResult.rows = dataResult.rows.map((product) => {
+            const price = priceMap.get(String(product.codigo || '').trim());
+            return {
+              ...product,
+              nuvemshop_price: price?.nuvemshop_price ?? null,
+              promotional_price: price?.promotional_price ?? null
+            };
+          });
+        } catch (priceError) {
+          console.error('Erro ao consultar preços promocionais do catálogo:', priceError.message);
+        }
+      }
+
       const total = countResult.rows[0]?.total || 0;
 
       return res.json({
@@ -104,7 +226,8 @@ class ProductController {
         page: 1,
         pageSize,
         totalPages: 1,
-        mode: rawSearch ? 'search' : 'popular',
+        mode: medicineOnly ? 'medicines' : (rawSearch ? 'search' : 'popular'),
+        group: medicineOnly ? 'Medicamentos' : null,
         popularCount: popularCodes.length,
         data: dataResult.rows
       });
@@ -114,6 +237,11 @@ class ProductController {
         error: 'Não foi possível consultar os produtos no momento.'
       });
     }
+  }
+
+  async getCatalogMedicines(req, res) {
+    req.catalogScope = 'medicines';
+    return this.getCatalogProducts(req, res);
   }
 
   async recordCatalogView(req, res) {

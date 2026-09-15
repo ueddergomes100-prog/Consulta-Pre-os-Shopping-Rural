@@ -59,6 +59,12 @@ setInterval(() => {
 }, RATE_WINDOW_MS).unref();
 
 app.get(
+  '/api/catalog/medicamentos',
+  rateLimit(READ_LIMIT),
+  ProductController.getCatalogMedicines.bind(ProductController)
+);
+
+app.get(
   '/api/catalog/products',
   rateLimit(READ_LIMIT),
   ProductController.getCatalogProducts.bind(ProductController)

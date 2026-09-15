@@ -4,7 +4,7 @@ import './index.css'
 import App from './App.jsx'
 import CatalogApp from './CatalogApp.jsx'
 
-const isCatalog = window.location.pathname === '/catalogo'
+const isCatalog = window.location.pathname.startsWith('/catalogo')
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
