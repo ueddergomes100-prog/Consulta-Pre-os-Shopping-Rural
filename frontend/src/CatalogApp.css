@@ -609,6 +609,14 @@ input {
   text-transform: uppercase;
 }
 
+.catalog-price-block { min-width: 0; }
+.catalog-offer-details { margin-top: 7px; color: var(--catalog-muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.catalog-offer-details summary { cursor: pointer; color: var(--catalog-green-900); font-weight: 700; padding: 5px 0; }
+.catalog-offer-details ul { list-style: none; padding: 0; margin: 7px 0 0; }
+.catalog-offer-details li { padding: 9px; margin-top: 6px; border: 1px solid var(--catalog-line); background: #f6faf7; border-radius: 7px; }
+.catalog-offer-details li > * { display: block; }
+.catalog-offer-details b { color: var(--catalog-ink); }
+
 .catalog-stock {
   display: inline-flex;
   align-items: center;

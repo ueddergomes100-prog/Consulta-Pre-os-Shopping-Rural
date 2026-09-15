@@ -1,5 +1,6 @@
 const erpDb = require('../database/uniplus');
 const catalogPopularity = require('../services/CatalogPopularityService');
+const catalogPromotions = require('../services/CatalogPromotionService');
 
 const MEDICINE_KEYWORDS = [
   'medicamento',
@@ -73,7 +74,8 @@ const MEDICINE_CATEGORY_KEYWORDS = [
   'antiparasitario',
   'vacina',
   'medic',
-  'vermifugo'
+  'vermifugo',
+  'vermigufo'
 ];
 
 class ProductController {
@@ -164,6 +166,7 @@ class ProductController {
 
       const dataSql = `
         SELECT
+          p.id AS product_id,
           p.codigo AS codigo,
           p.nome AS nome,
           h.nome AS nome_categoria,
@@ -171,6 +174,7 @@ class ProductController {
           h.nome AS subgrupo_categoria,
           NULLIF(BTRIM(p.descricaoshop), '') AS descricao,
           COALESCE(fpp.preco, 0) AS preco,
+          fpp.price_branches,
           COALESCE(se.estoque, 0) AS estoque
         FROM produto p
         LEFT JOIN (
@@ -179,7 +183,8 @@ class ProductController {
           GROUP BY idproduto
         ) se ON se.idproduto = p.id
         LEFT JOIN (
-          SELECT idproduto, MAX(COALESCE(preco, 0)) AS preco
+          SELECT idproduto, MAX(COALESCE(preco, 0)) AS preco,
+            array_agg(DISTINCT idfilial::text) AS price_branches
           FROM formacaoprecoproduto
           GROUP BY idproduto
         ) fpp ON fpp.idproduto = p.id
@@ -196,36 +201,13 @@ class ProductController {
         erpDb.query(dataSql, [...dataParams, pageSize])
       ]);
 
-      if (dataResult.rows.length) {
-        try {
-          const intDb = require('../database/catalog-integration');
-          const productCodes = dataResult.rows.map((product) => String(product.codigo || '').trim());
-          const { rows: priceRows } = await intDb.query(
-            `SELECT sku, nuvemshop_price, promotional_price
-             FROM integration_products
-             WHERE sku = ANY($1)`,
-            [productCodes]
-          );
-          const priceMap = new Map(
-            priceRows.map((price) => [String(price.sku || '').trim(), price])
-          );
-
-          dataResult.rows = dataResult.rows.map((product) => {
-            const price = priceMap.get(String(product.codigo || '').trim());
-            return {
-              ...product,
-              nuvemshop_price: price?.nuvemshop_price ?? null,
-              promotional_price: price?.promotional_price ?? null
-            };
-          });
-        } catch (priceError) {
-          console.error('Erro ao consultar preços promocionais do catálogo:', priceError.message);
-        }
-      }
+      dataResult.rows = await catalogPromotions.enrichProducts(dataResult.rows);
 
       const total = countResult.rows[0]?.total || 0;
 
+      res.setHeader('Cache-Control', 'no-store');
       return res.json({
+        updatedAt: new Date().toISOString(),
         total,
         page: 1,
         pageSize,

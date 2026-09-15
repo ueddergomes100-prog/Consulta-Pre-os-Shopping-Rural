@@ -47,11 +47,42 @@ function getEffectivePrice(product) {
   const price = Number(product.preco || 0);
   const promotionalPrice = Number(product.promotional_price || 0);
 
-  return promotionalPrice > 0 ? promotionalPrice : price;
+  return promotionalPrice > 0 && promotionalPrice < price ? promotionalPrice : price;
 }
 
 function hasPromotion(product) {
-  return Number(product.promotional_price || 0) > 0;
+  return product.promotions?.length > 0;
+}
+
+function ProductPrice({ product }) {
+  const discounted = getEffectivePrice(product) < Number(product.preco);
+  const offers = product.promotions || [];
+  const formatEnd = (date) => date ? date.split('-').reverse().join('/') : 'Sem data final';
+
+  return (
+    <div className="catalog-price-block">
+      <span className="catalog-price">
+        {discounted && <small>{currencyFormatter.format(Number(product.preco))}</small>}
+        <strong>{currencyFormatter.format(getEffectivePrice(product))}</strong>
+        {offers.length > 0 && <em>{discounted ? 'Promoção Uniplus' : 'Oferta com condições'}</em>}
+      </span>
+      {offers.length > 0 && (
+        <details className="catalog-offer-details">
+          <summary>Ver {offers.length === 1 ? 'oferta' : `${offers.length} ofertas`}</summary>
+          <ul>
+            {offers.map((offer) => (
+              <li key={offer.id}>
+                <b>{offer.name}</b>
+                {offer.price !== null && <span>{currencyFormatter.format(offer.price)}</span>}
+                <span>{offer.ends_at ? `Até ${formatEnd(offer.ends_at)}` : 'Sem data final'}</span>
+                {offer.conditions.map((condition) => <span key={condition}>{condition}</span>)}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
 }
 
 function Brand() {
@@ -134,13 +165,7 @@ function ProductTableRow({ product }) {
         </span>
       </td>
       <td data-label="Preço">
-        <span className="catalog-price">
-          {hasPromotion(product) && (
-            <small>{currencyFormatter.format(Number(product.preco || 0))}</small>
-          )}
-          <strong>{currencyFormatter.format(getEffectivePrice(product))}</strong>
-          {hasPromotion(product) && <em>Promoção do site</em>}
-        </span>
+        <ProductPrice product={product} />
       </td>
       <td data-label="Estoque" className="catalog-stock-cell">
         <span className={`catalog-stock catalog-stock--${status.key}`}>
@@ -182,13 +207,7 @@ function ProductCard({ product }) {
         {description || 'Sem descrição cadastrada'}
       </p>
       <div className="catalog-product-card__bottom">
-        <span className="catalog-price">
-          {hasPromotion(product) && (
-            <small>{currencyFormatter.format(Number(product.preco || 0))}</small>
-          )}
-          <strong>{currencyFormatter.format(getEffectivePrice(product))}</strong>
-          {hasPromotion(product) && <em>Promoção do site</em>}
-        </span>
+        <ProductPrice product={product} />
         <span className="catalog-product-card__quantity">
           <small>Estoque</small>
           <strong>{stockFormatter.format(Number(product.estoque || 0))} un.</strong>
@@ -221,8 +240,23 @@ export default function CatalogApp() {
   const [promoOnly, setPromoOnly] = useState(false);
   const [status, setStatus] = useState('loading');
   const [retryToken, setRetryToken] = useState(0);
+  const [updatedAt, setUpdatedAt] = useState(null);
   const inputRef = useRef(null);
   const lastRecordedSearchRef = useRef(null);
+
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === 'visible') setRetryToken((value) => value + 1);
+    };
+    const timer = window.setInterval(refresh, 60000);
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, []);
 
   useEffect(() => {
     const nextQuery = query.trim();
@@ -247,6 +281,7 @@ export default function CatalogApp() {
       setProducts(productData);
       setTotal(Number(data.total || 0));
       setPopularCount(Number(data.popularCount || 0));
+      setUpdatedAt(data.updatedAt || null);
       setStatus(data.data?.length ? 'success' : 'empty');
 
       const normalizedQuery = debouncedQuery
@@ -270,6 +305,7 @@ export default function CatalogApp() {
         setProducts([]);
         setTotal(0);
         setPopularCount(0);
+        setUpdatedAt(null);
         setStatus('error');
       }
     });
@@ -426,7 +462,7 @@ export default function CatalogApp() {
             <div>
               <Tags size={20} aria-hidden="true" />
               <strong>{status === 'success' ? medicineStats.promotionCount.toLocaleString('pt-BR') : '—'}</strong>
-              <span>Promoções do site</span>
+              <span>Promoções Uniplus</span>
             </div>
             <div>
               <Boxes size={20} aria-hidden="true" />
@@ -509,9 +545,9 @@ export default function CatalogApp() {
                 onChange={(event) => setPromoOnly(event.target.checked)}
               />
               <Tags size={16} />
-              Promoções do site
+              Promoções Uniplus
             </label>
-            <p className="catalog-promo-note">Ofertas cadastradas na integração com a loja online. Podem diferir das promoções do Uniplus.</p>
+            <p className="catalog-promo-note">Ofertas vigentes no Uniplus. Consulte as condições e a embalagem em “Ver oferta”.</p>
           </section>
         )}
 
@@ -589,7 +625,7 @@ export default function CatalogApp() {
       <footer className="catalog-footer">
         <div className="catalog-container">
           <Brand />
-          <p>Informações atualizadas diretamente pelo sistema da loja.</p>
+          <p>{updatedAt ? `Consultado às ${new Date(updatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })} · Atualização automática a cada minuto.` : 'Consulta de preços e estoque do Uniplus.'}</p>
         </div>
       </footer>
     </div>
