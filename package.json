@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "build:frontend": "cd frontend && npm run build",
+    "build:frontend": "cd frontend && node node_modules/vite/bin/vite.js build",
     "dev:frontend": "cd frontend && npm run dev",
     "start:catalog-public": "node src/catalog-public-server.js",
     "test": "echo \"Error: no test specified\" && exit 1"

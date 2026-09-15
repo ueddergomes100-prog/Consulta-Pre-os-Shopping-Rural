@@ -96,6 +96,7 @@ app.get('*', (req, res) => {
     return res.status(503).send('Catalogo indisponivel. Execute o build do frontend.');
   }
 
+  res.setHeader('Cache-Control', 'no-store');
   return res.sendFile(indexPath);
 });
 
