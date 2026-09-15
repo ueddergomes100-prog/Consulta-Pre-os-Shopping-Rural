@@ -167,6 +167,8 @@ class ProductController {
           p.codigo AS codigo,
           p.nome AS nome,
           h.nome AS nome_categoria,
+          COALESCE(hg.nome, h.nome) AS grupo_categoria,
+          h.nome AS subgrupo_categoria,
           NULLIF(BTRIM(p.descricaoshop), '') AS descricao,
           COALESCE(fpp.preco, 0) AS preco,
           COALESCE(se.estoque, 0) AS estoque
@@ -182,6 +184,8 @@ class ProductController {
           GROUP BY idproduto
         ) fpp ON fpp.idproduto = p.id
         LEFT JOIN hierarquia h ON h.id = p.idhierarquia
+        LEFT JOIN hierarquia hg
+          ON BTRIM(hg.codigo) = SPLIT_PART(REGEXP_REPLACE(BTRIM(h.codigo), '\\s+', ' ', 'g'), ' ', 1)
         WHERE ${whereClause}
         ORDER BY ${orderClause}
         LIMIT $${dataParams.length + 1}
@@ -194,7 +198,7 @@ class ProductController {
 
       if (dataResult.rows.length) {
         try {
-          const intDb = require('../database/integration');
+          const intDb = require('../database/catalog-integration');
           const productCodes = dataResult.rows.map((product) => String(product.codigo || '').trim());
           const { rows: priceRows } = await intDb.query(
             `SELECT sku, nuvemshop_price, promotional_price

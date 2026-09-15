@@ -3,10 +3,12 @@ import axios from 'axios';
 import {
   AlertTriangle,
   ArrowDownUp,
+  Boxes,
   CheckCircle2,
   CircleOff,
   LoaderCircle,
   PackageOpen,
+  Pill,
   RefreshCw,
   Search,
   SlidersHorizontal,
@@ -111,7 +113,8 @@ function ProductTableRow({ product }) {
   const status = getStockStatus(product.estoque);
   const StatusIcon = status.icon;
   const description = product.descricao?.trim();
-  const group = product.nome_categoria?.trim();
+  const group = product.grupo_categoria?.trim();
+  const subgroup = product.subgrupo_categoria?.trim() || product.nome_categoria?.trim();
 
   return (
     <tr className="catalog-product-row">
@@ -120,7 +123,12 @@ function ProductTableRow({ product }) {
       </td>
       <td data-label="Produto" className="catalog-product-main">
         <strong>{product.nome}</strong>
-        {group && <span className="catalog-group">{group}</span>}
+        {(group || subgroup) && (
+          <span className="catalog-group">
+            {group || 'Sem grupo'}
+            {subgroup && subgroup !== group ? <small>{subgroup}</small> : null}
+          </span>
+        )}
         <span className={description ? '' : 'catalog-description--empty'}>
           {description || 'Sem descrição cadastrada'}
         </span>
@@ -131,7 +139,7 @@ function ProductTableRow({ product }) {
             <small>{currencyFormatter.format(Number(product.preco || 0))}</small>
           )}
           <strong>{currencyFormatter.format(getEffectivePrice(product))}</strong>
-          {hasPromotion(product) && <em>Promoção</em>}
+          {hasPromotion(product) && <em>Promoção do site</em>}
         </span>
       </td>
       <td data-label="Estoque" className="catalog-stock-cell">
@@ -151,7 +159,8 @@ function ProductCard({ product }) {
   const status = getStockStatus(product.estoque);
   const StatusIcon = status.icon;
   const description = product.descricao?.trim();
-  const group = product.nome_categoria?.trim();
+  const group = product.grupo_categoria?.trim();
+  const subgroup = product.subgrupo_categoria?.trim() || product.nome_categoria?.trim();
 
   return (
     <article className="catalog-product-card">
@@ -163,7 +172,12 @@ function ProductCard({ product }) {
         </span>
       </div>
       <h2>{product.nome}</h2>
-      {group && <span className="catalog-group">{group}</span>}
+      {(group || subgroup) && (
+        <span className="catalog-group">
+          {group || 'Sem grupo'}
+          {subgroup && subgroup !== group ? <small>{subgroup}</small> : null}
+        </span>
+      )}
       <p className={description ? '' : 'catalog-description--empty'}>
         {description || 'Sem descrição cadastrada'}
       </p>
@@ -173,7 +187,7 @@ function ProductCard({ product }) {
             <small>{currencyFormatter.format(Number(product.preco || 0))}</small>
           )}
           <strong>{currencyFormatter.format(getEffectivePrice(product))}</strong>
-          {hasPromotion(product) && <em>Promoção</em>}
+          {hasPromotion(product) && <em>Promoção do site</em>}
         </span>
         <span className="catalog-product-card__quantity">
           <small>Estoque</small>
@@ -202,6 +216,8 @@ export default function CatalogApp() {
   const [popularCount, setPopularCount] = useState(0);
   const [sortBy, setSortBy] = useState('name');
   const [stockFilter, setStockFilter] = useState('all');
+  const [groupFilter, setGroupFilter] = useState('all');
+  const [subgroupFilter, setSubgroupFilter] = useState('all');
   const [promoOnly, setPromoOnly] = useState(false);
   const [status, setStatus] = useState('loading');
   const [retryToken, setRetryToken] = useState(0);
@@ -273,16 +289,29 @@ export default function CatalogApp() {
     setRetryToken((value) => value + 1);
   };
 
+  const resetFilters = () => {
+    setGroupFilter('all');
+    setSubgroupFilter('all');
+    setStockFilter('all');
+    setPromoOnly(false);
+    setSortBy('name');
+  };
+  const hasFilters = groupFilter !== 'all' || subgroupFilter !== 'all' || stockFilter !== 'all' || promoOnly;
+
   const visibleProducts = useMemo(() => {
     const nextProducts = isMedicineCatalog ? products.filter((product) => {
       const stock = Number(product.estoque || 0);
+      const productGroup = product.grupo_categoria?.trim() || 'Sem grupo';
+      const productSubgroup = product.subgrupo_categoria?.trim() || product.nome_categoria?.trim() || 'Sem subgrupo';
       const matchesStock = stockFilter === 'all'
         || (stockFilter === 'available' && stock > LOW_STOCK_LIMIT)
         || (stockFilter === 'low' && stock > 0 && stock <= LOW_STOCK_LIMIT)
         || (stockFilter === 'out' && stock <= 0);
       const matchesPromotion = !promoOnly || hasPromotion(product);
+      const matchesGroup = groupFilter === 'all' || productGroup === groupFilter;
+      const matchesSubgroup = subgroupFilter === 'all' || productSubgroup === subgroupFilter;
 
-      return matchesStock && matchesPromotion;
+      return matchesStock && matchesPromotion && matchesGroup && matchesSubgroup;
     }) : [...products];
 
     if (!isMedicineCatalog) {
@@ -302,26 +331,59 @@ export default function CatalogApp() {
 
       return String(firstProduct.nome || '').localeCompare(String(secondProduct.nome || ''), 'pt-BR');
     });
-  }, [isMedicineCatalog, products, promoOnly, sortBy, stockFilter]);
+  }, [groupFilter, isMedicineCatalog, products, promoOnly, sortBy, stockFilter, subgroupFilter]);
+
+  const groupOptions = useMemo(() => {
+    const groups = new Set(products.map((product) => product.grupo_categoria?.trim() || 'Sem grupo'));
+    return [...groups].sort((firstGroup, secondGroup) => firstGroup.localeCompare(secondGroup, 'pt-BR'));
+  }, [products]);
+
+  const subgroupOptions = useMemo(() => {
+    const subgroups = products
+      .filter((product) => {
+        const productGroup = product.grupo_categoria?.trim() || 'Sem grupo';
+        return groupFilter === 'all' || productGroup === groupFilter;
+      })
+      .map((product) => product.subgrupo_categoria?.trim() || product.nome_categoria?.trim() || 'Sem subgrupo');
+
+    return [...new Set(subgroups)].sort((firstSubgroup, secondSubgroup) =>
+      firstSubgroup.localeCompare(secondSubgroup, 'pt-BR')
+    );
+  }, [groupFilter, products]);
+
+  const medicineStats = useMemo(() => {
+    const availableCount = products.filter((product) => Number(product.estoque || 0) > 0).length;
+    const promotionCount = products.filter(hasPromotion).length;
+
+    return {
+      total: products.length,
+      availableCount,
+      promotionCount,
+      groupCount: groupOptions.length
+    };
+  }, [groupOptions.length, products]);
 
   return (
     <div className={`catalog-shell ${isMedicineCatalog ? 'catalog-shell--erp' : ''}`}>
       <header className="catalog-header">
         <div className="catalog-container catalog-header__inner">
           <Brand />
-          <span className="catalog-header__tag">Consulta rápida</span>
+          <nav className="catalog-nav" aria-label="Catálogos">
+            <a href="/catalogo" aria-current={!isMedicineCatalog ? 'page' : undefined}>Todos os produtos</a>
+            <a href="/catalogo/medicamentos" aria-current={isMedicineCatalog ? 'page' : undefined}><Pill size={16} /> Medicamentos</a>
+          </nav>
         </div>
       </header>
 
       <main className="catalog-container catalog-main">
         <section className="catalog-intro" aria-labelledby="catalog-title">
-          <p className="catalog-eyebrow">Catálogo de produtos</p>
+          <p className="catalog-eyebrow">Shopping Rural / Consulta de produtos</p>
           <h1 id="catalog-title">
-            {isMedicineCatalog ? 'Medicamentos cadastrados na loja.' : 'Consulte preço e estoque em segundos.'}
+            {isMedicineCatalog ? 'Medicamentos' : 'Consulte preço e estoque em segundos.'}
           </h1>
           <p>
             {isMedicineCatalog
-              ? 'Lista filtrada por grupo e por termos de medicamento no nome do produto.'
+              ? 'Encontre o produto certo. Compare preços e confira a disponibilidade.'
               : 'Veja os produtos mais pesquisados ou procure pelo código e nome.'}
           </p>
         </section>
@@ -335,7 +397,7 @@ export default function CatalogApp() {
               id="catalog-query"
               type="search"
               autoComplete="off"
-              placeholder="Digite o início do nome ou use: ração+gourmet+20kg"
+              placeholder={isMedicineCatalog ? 'Busque por código, nome ou combine termos com +' : 'Digite o início do nome ou use: ração+gourmet+20kg'}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               aria-describedby="catalog-search-hint"
@@ -350,13 +412,75 @@ export default function CatalogApp() {
         </section>
 
         {isMedicineCatalog && (
+          <section className="catalog-medicine-summary" aria-label="Resumo de medicamentos">
+            <div>
+              <PackageOpen size={20} aria-hidden="true" />
+              <strong>{status === 'success' ? medicineStats.total.toLocaleString('pt-BR') : '—'}</strong>
+              <span>Itens encontrados</span>
+            </div>
+            <div>
+              <CheckCircle2 size={20} aria-hidden="true" />
+              <strong>{status === 'success' ? medicineStats.availableCount.toLocaleString('pt-BR') : '—'}</strong>
+              <span>Com estoque</span>
+            </div>
+            <div>
+              <Tags size={20} aria-hidden="true" />
+              <strong>{status === 'success' ? medicineStats.promotionCount.toLocaleString('pt-BR') : '—'}</strong>
+              <span>Promoções do site</span>
+            </div>
+            <div>
+              <Boxes size={20} aria-hidden="true" />
+              <strong>{status === 'success' ? medicineStats.groupCount.toLocaleString('pt-BR') : '—'}</strong>
+              <span>Grupos</span>
+            </div>
+          </section>
+        )}
+
+        {isMedicineCatalog && (
           <section className="catalog-toolbar" aria-label="Filtros de medicamentos">
+            <div className="catalog-toolbar__heading">
+              <strong><SlidersHorizontal size={17} /> Refine sua consulta</strong>
+              <button className="catalog-reset" type="button" onClick={resetFilters} disabled={!hasFilters && sortBy === 'name'}><X size={14} /> Limpar filtros</button>
+            </div>
+            <div className="catalog-toolbar__group catalog-toolbar__group--wide">
+              <span>
+                <Boxes size={16} />
+                Grupo
+              </span>
+              <select
+                aria-label="Grupo"
+                value={groupFilter}
+                onChange={(event) => {
+                  setGroupFilter(event.target.value);
+                  setSubgroupFilter('all');
+                }}
+              >
+                <option value="all">Todos</option>
+                {groupOptions.map((group) => (
+                  <option key={group} value={group}>{group}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="catalog-toolbar__group catalog-toolbar__group--wide">
+              <span>
+                <Boxes size={16} />
+                Subgrupo
+              </span>
+              <select aria-label="Subgrupo" value={subgroupFilter} onChange={(event) => setSubgroupFilter(event.target.value)}>
+                <option value="all">Todos</option>
+                {subgroupOptions.map((subgroup) => (
+                  <option key={subgroup} value={subgroup}>{subgroup}</option>
+                ))}
+              </select>
+            </div>
+
             <div className="catalog-toolbar__group">
               <span>
                 <ArrowDownUp size={16} />
                 Ordenar
               </span>
-              <select value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
+              <select aria-label="Ordenar" value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
                 <option value="name">Nome A-Z</option>
                 <option value="price-asc">Menor preço</option>
                 <option value="price-desc">Maior preço</option>
@@ -370,9 +494,9 @@ export default function CatalogApp() {
                 <SlidersHorizontal size={16} />
                 Estoque
               </span>
-              <select value={stockFilter} onChange={(event) => setStockFilter(event.target.value)}>
+              <select aria-label="Estoque" value={stockFilter} onChange={(event) => setStockFilter(event.target.value)}>
                 <option value="all">Todos</option>
-                <option value="available">Disponível</option>
+                <option value="available">Acima de 5 unidades</option>
                 <option value="low">Estoque baixo</option>
                 <option value="out">Sem estoque</option>
               </select>
@@ -385,8 +509,9 @@ export default function CatalogApp() {
                 onChange={(event) => setPromoOnly(event.target.checked)}
               />
               <Tags size={16} />
-              Só promoção
+              Promoções do site
             </label>
+            <p className="catalog-promo-note">Ofertas cadastradas na integração com a loja online. Podem diferir das promoções do Uniplus.</p>
           </section>
         )}
 
@@ -396,7 +521,7 @@ export default function CatalogApp() {
               <div>
                 <h2>
                   {isMedicineCatalog
-                    ? 'Medicamentos'
+                    ? 'Produtos encontrados'
                     : (debouncedQuery ? 'Resultados' : '20 produtos mais pesquisados')}
                 </h2>
                 <p aria-live="polite">
@@ -448,7 +573,8 @@ export default function CatalogApp() {
                   <PackageOpen size={28} />
                 </span>
                 <h2>Nenhum medicamento nesse filtro</h2>
-                <p>Ajuste a ordenação, estoque ou promoção para ampliar a consulta.</p>
+                <p>Ajuste grupo, subgrupo, estoque ou promoção para ampliar a consulta.</p>
+                <button type="button" className="catalog-button" onClick={resetFilters}>Limpar filtros</button>
               </section>
             )}
 
