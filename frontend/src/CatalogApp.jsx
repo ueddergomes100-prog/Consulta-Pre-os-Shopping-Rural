@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import './CatalogApp.css';
+import CatalogInstall from './CatalogInstall.jsx';
 
 const LOW_STOCK_LIMIT = 5;
 
@@ -120,6 +121,11 @@ function EmptyState({ type, query, onRetry }) {
       title: 'Não foi possível carregar os produtos',
       text: 'Verifique a conexão e tente novamente em alguns instantes.',
     },
+    offline: {
+      icon: AlertTriangle,
+      title: 'Sem conexão com a loja',
+      text: 'Conecte-se à rede da loja para consultar preços e estoque atualizados.',
+    },
   }[type];
   const Icon = config.icon;
 
@@ -130,7 +136,7 @@ function EmptyState({ type, query, onRetry }) {
       </span>
       <h2>{config.title}</h2>
       <p>{config.text}</p>
-      {type === 'error' && (
+      {(type === 'error' || type === 'offline') && (
         <button className="catalog-button catalog-button--primary" type="button" onClick={onRetry}>
           <RefreshCw size={17} />
           Tentar novamente
@@ -249,10 +255,20 @@ export default function CatalogApp() {
       if (document.visibilityState === 'visible') setRetryToken((value) => value + 1);
     };
     const timer = window.setInterval(refresh, 60000);
+    const offline = () => {
+      setProducts([]);
+      setTotal(0);
+      setUpdatedAt(null);
+      setStatus('offline');
+    };
+    window.addEventListener('offline', offline);
+    window.addEventListener('online', refresh);
     document.addEventListener('visibilitychange', refresh);
     window.addEventListener('focus', refresh);
     return () => {
       window.clearInterval(timer);
+      window.removeEventListener('offline', offline);
+      window.removeEventListener('online', refresh);
       document.removeEventListener('visibilitychange', refresh);
       window.removeEventListener('focus', refresh);
     };
@@ -276,6 +292,7 @@ export default function CatalogApp() {
     axios.get(isMedicineCatalog ? '/api/catalog/medicamentos' : '/api/catalog/products', {
       params: { search: debouncedQuery },
       signal: controller.signal,
+      timeout: 15000,
     }).then(({ data }) => {
       const productData = Array.isArray(data.data) ? data.data : [];
       setProducts(productData);
@@ -306,7 +323,7 @@ export default function CatalogApp() {
         setTotal(0);
         setPopularCount(0);
         setUpdatedAt(null);
-        setStatus('error');
+        setStatus(navigator.onLine ? 'error' : 'offline');
       }
     });
 
@@ -408,6 +425,7 @@ export default function CatalogApp() {
             <a href="/catalogo" aria-current={!isMedicineCatalog ? 'page' : undefined}>Todos os produtos</a>
             <a href="/catalogo/medicamentos" aria-current={isMedicineCatalog ? 'page' : undefined}><Pill size={16} /> Medicamentos</a>
           </nav>
+          <CatalogInstall />
         </div>
       </header>
 
@@ -620,6 +638,7 @@ export default function CatalogApp() {
         {status === 'loading' && <LoadingState />}
         {status === 'empty' && <EmptyState type="empty" query={debouncedQuery} />}
         {status === 'error' && <EmptyState type="error" onRetry={retrySearch} />}
+        {status === 'offline' && <EmptyState type="offline" onRetry={retrySearch} />}
       </main>
 
       <footer className="catalog-footer">

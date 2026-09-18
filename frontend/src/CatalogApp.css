@@ -995,6 +995,14 @@ input {
   gap: 8px;
 }
 
+.catalog-install { flex-shrink: 0; font-size: 12px; }
+.catalog-install-dialog { width: min(480px, calc(100% - 32px)); max-height: 85vh; margin: auto; padding: 24px; border: 1px solid var(--catalog-line); border-radius: 16px; color: var(--catalog-ink); }
+.catalog-install-dialog::backdrop { background: #10261b80; }
+.catalog-install-dialog h2 { font-size: 20px; color: var(--catalog-green-950); }
+.catalog-install-dialog p { font-size: 14px; line-height: 1.6; }
+.catalog-install-dialog form { display: flex; justify-content: flex-end; }
+.catalog-install-dialog form button { display: grid; place-items: center; width: 36px; height: 36px; background: var(--catalog-green-50); border: 0; border-radius: 8px; cursor: pointer; }
+
 .catalog-nav a {
   display: inline-flex;
   align-items: center;
@@ -1068,6 +1076,7 @@ input {
   .catalog-shell--erp .catalog-container { width: calc(100% - 28px); }
   .catalog-header__inner { flex-wrap: wrap; gap: 8px; padding-top: 10px; padding-bottom: 10px; }
   .catalog-nav { width: 100%; border-top: 1px solid #edf1ee; padding-top: 8px; }
+  .catalog-install { width: 100%; }
   .catalog-nav a { flex: 1; font-size: 12px; padding: 8px; }
   .catalog-shell--erp .catalog-main { padding-top: 24px; }
   .catalog-shell--erp .catalog-intro h1 { font-size: 28px; }

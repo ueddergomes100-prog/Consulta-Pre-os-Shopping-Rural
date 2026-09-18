@@ -10,7 +10,8 @@ const PORT = process.env.CATALOG_PUBLIC_PORT || 3010;
 const frontendDistPath = path.join(__dirname, '..', 'frontend', 'dist');
 const indexPath = path.join(frontendDistPath, 'index.html');
 
-app.set('trust proxy', true);
+// Acesso direto pela rede local; não confia em cabeçalhos enviados pelo cliente.
+app.set('trust proxy', false);
 app.disable('x-powered-by');
 
 app.use((req, res, next) => {
@@ -84,14 +85,22 @@ app.use('/api', (req, res) => {
   res.status(404).json({ error: 'Recurso nao encontrado.' });
 });
 
+app.get('/', (req, res) => res.redirect('/catalogo'));
+
 app.use(express.static(frontendDistPath, {
   dotfiles: 'ignore',
   fallthrough: true,
   index: false,
   maxAge: '1h',
+  setHeaders(res, filePath) {
+    if (filePath.endsWith('catalog-sw.js') || filePath.endsWith('.webmanifest') || filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-store');
+    }
+  },
 }));
 
 app.get('*', (req, res) => {
+  if (!req.path.startsWith('/catalogo')) return res.status(404).send('Recurso não encontrado.');
   if (!fs.existsSync(indexPath)) {
     return res.status(503).send('Catalogo indisponivel. Execute o build do frontend.');
   }
@@ -100,6 +109,6 @@ app.get('*', (req, res) => {
   return res.sendFile(indexPath);
 });
 
-app.listen(PORT, () => {
-  console.log(`Catalogo publico rodando em http://localhost:${PORT}/catalogo`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Catalogo local rodando em http://localhost:${PORT}/catalogo (rede local habilitada)`);
 });
